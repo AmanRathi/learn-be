@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backend Notes</title>
+<meta name="description" content="Public notes on backend engineering — searchable, plain language, with examples.">
+<style>
+  :root{
+    --bg:#fbfbf9; --panel:#ffffff; --text:#1c1c1a; --muted:#6b6b66;
+    --line:#e4e4de; --accent:#b5522a; --accent-soft:#fbeee7; --on-accent:#fff;
+    --mark:#ffe9a8; --code-bg:#f4f4f0; --shadow:0 1px 2px rgba(0,0,0,.05);
+    --radius:10px;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#131315; --panel:#1a1a1d; --text:#e8e8e4; --muted:#9a9a93;
+      --line:#2c2c30; --accent:#e88a5c; --accent-soft:#2a1d16; --on-accent:#17110d;
+      --mark:#5c4a10; --code-bg:#202024; --shadow:none;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#fbfbf9; --panel:#ffffff; --text:#1c1c1a; --muted:#6b6b66;
+    --line:#e4e4de; --accent:#b5522a; --accent-soft:#fbeee7; --on-accent:#fff;
+    --mark:#ffe9a8; --code-bg:#f4f4f0; --shadow:0 1px 2px rgba(0,0,0,.05);
+  }
+  :root[data-theme="dark"]{
+    --bg:#131315; --panel:#1a1a1d; --text:#e8e8e4; --muted:#9a9a93;
+    --line:#2c2c30; --accent:#e88a5c; --accent-soft:#2a1d16; --on-accent:#17110d;
+    --mark:#5c4a10; --code-bg:#202024; --shadow:none;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:110px}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:16px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent)}
+
+  /* ---------- header ---------- */
+  header{
+    position:sticky; top:0; z-index:20; background:var(--bg);
+    border-bottom:1px solid var(--line);
+  }
+  .head-inner{max-width:1100px; margin:0 auto; padding:14px 20px 12px}
+  .title-row{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  h1{font-size:19px; margin:0; letter-spacing:-.01em}
+  h1 .dot{color:var(--accent)}
+  .sub{color:var(--muted); font-size:13px; margin:0}
+  .spacer{flex:1}
+  .theme-btn{
+    background:none; border:1px solid var(--line); color:var(--muted);
+    border-radius:99px; padding:4px 11px; font-size:12px; cursor:pointer;
+    font-family:inherit;
+  }
+  .theme-btn:hover{color:var(--text); border-color:var(--muted)}
+
+  .search-wrap{position:relative; margin-top:11px}
+  #search{
+    width:100%; padding:11px 78px 11px 38px; font-size:15px; font-family:inherit;
+    background:var(--panel); color:var(--text);
+    border:1px solid var(--line); border-radius:var(--radius); outline:none;
+  }
+  #search:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+  .search-icon{
+    position:absolute; left:13px; top:50%; transform:translateY(-50%);
+    color:var(--muted); font-size:14px; pointer-events:none;
+  }
+  .kbd{
+    position:absolute; right:11px; top:50%; transform:translateY(-50%);
+    color:var(--muted); font-size:11px; font-family:var(--mono);
+    border:1px solid var(--line); border-radius:5px; padding:1px 6px;
+    pointer-events:none;
+  }
+  #search:not(:placeholder-shown) ~ .kbd{display:none}
+
+  .chips{display:flex; gap:7px; flex-wrap:wrap; margin-top:11px}
+  .chip{
+    font-size:12.5px; font-family:inherit; cursor:pointer;
+    background:var(--panel); color:var(--muted);
+    border:1px solid var(--line); border-radius:99px; padding:4px 11px;
+  }
+  .chip:hover{color:var(--text)}
+  .chip[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+  .chip .n{opacity:.65; font-family:var(--mono); font-size:11px}
+
+  /* ---------- layout ---------- */
+  main{max-width:1100px; margin:0 auto; padding:26px 20px 90px; display:flex; gap:34px}
+  .notes{flex:1; min-width:0}
+  aside{
+    width:196px; flex:none; position:sticky; top:118px; align-self:flex-start;
+    max-height:calc(100vh - 150px); overflow:auto;
+  }
+  aside h2{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 9px}
+  aside a{display:block; padding:3px 0; font-size:13.5px; color:var(--muted); text-decoration:none}
+  aside a:hover{color:var(--accent)}
+  @media (max-width:860px){ aside{display:none} main{padding-top:20px} }
+  /* before the first note exists, hide the empty scaffolding */
+  body.no-notes aside, body.no-notes .search-wrap, body.no-notes .chips{display:none}
+
+  /* ---------- notes ---------- */
+  .cat-head{
+    font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+    margin:34px 0 12px; padding-bottom:7px; border-bottom:1px solid var(--line);
+  }
+  .cat-head:first-child{margin-top:0}
+
+  article{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:18px 20px; margin-bottom:13px; box-shadow:var(--shadow);
+  }
+  article h3{
+    font-size:17px; margin:0 0 8px; line-height:1.4; letter-spacing:-.01em;
+    display:flex; align-items:baseline; gap:8px;
+  }
+  .anchor{
+    color:var(--muted); text-decoration:none; font-weight:400; opacity:0;
+    font-family:var(--mono); font-size:13px; transition:opacity .12s;
+  }
+  article:hover .anchor{opacity:.55}
+  .anchor:hover{opacity:1 !important; color:var(--accent)}
+  .body p{margin:0 0 10px}
+  .body p:last-child{margin-bottom:0}
+  .body ul,.body ol{margin:0 0 10px; padding-left:22px}
+  .body li{margin-bottom:4px}
+  .body code, .tags code{
+    font-family:var(--mono); font-size:.87em; background:var(--code-bg);
+    padding:1.5px 5px; border-radius:4px;
+  }
+  .body strong{font-weight:650}
+
+  .callout{
+    border-left:3px solid var(--accent); background:var(--accent-soft);
+    padding:10px 14px; border-radius:0 6px 6px 0; margin:12px 0 0; font-size:14.5px;
+  }
+  .callout b{color:var(--accent); font-size:11px; letter-spacing:.07em; text-transform:uppercase; display:block; margin-bottom:2px}
+
+  .ex{margin-top:12px}
+  .ex-label{font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:5px}
+  pre{
+    margin:0 0 8px; background:var(--code-bg); border:1px solid var(--line);
+    border-radius:7px; padding:12px 14px; overflow-x:auto;
+    font-family:var(--mono); font-size:13px; line-height:1.55;
+  }
+  pre:last-child{margin-bottom:0}
+
+  .tags{margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+  .tag{
+    font-family:var(--mono); font-size:11px; color:var(--muted);
+    border:1px solid var(--line); border-radius:99px; padding:1px 8px;
+    background:none; cursor:pointer;
+  }
+  .tag:hover{color:var(--accent); border-color:var(--accent)}
+
+  mark{background:var(--mark); color:inherit; border-radius:2px; padding:0 1px}
+
+  .empty{text-align:center; color:var(--muted); padding:70px 20px}
+  .empty code{font-family:var(--mono)}
+  footer{
+    max-width:1100px; margin:0 auto; padding:0 20px 40px;
+    color:var(--muted); font-size:12.5px; border-top:1px solid var(--line);
+    padding-top:18px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-inner">
+    <div class="title-row">
+      <h1>Backend Notes<span class="dot">.</span></h1>
+      <p class="sub" id="meta"></p>
+      <span class="spacer"></span>
+      <button class="theme-btn" id="theme" type="button">theme</button>
+    </div>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search" type="search" placeholder="Search notes — title, text, code, tags…" autocomplete="off" spellcheck="false">
+      <span class="kbd">/</span>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+</header>
+
+<main>
+  <div class="notes" id="notes"></div>
+  <aside>
+    <h2>Contents</h2>
+    <nav id="toc"></nav>
+  </aside>
+</main>
+
+<footer id="footer"></footer>
+
+<script>
+/* ============================================================================
+   NOTES DATA — this is the only part that changes as I learn.
+   ----------------------------------------------------------------------------
+   Append one object per note. Newest goes at the BOTTOM (notes render in array
+   order, grouped by category). Template:
+
+   {
+     id:       "kebab-case-unique-id",     // becomes the #anchor link — never change it later
+     title:    "Short title — the slightly longer, more specific part",
+     category: "Databases",                // reuse an existing category name where one fits
+     tags:     ["sql", "indexes"],
+     body:     `<p>Plain-language explanation. HTML allowed.</p>`,
+     highlight:`The gotcha worth remembering.`,      // optional callout — omit if there isn't one
+     examples: [ { label:"SQL", code:`SELECT 1;` } ] // optional — omit if none
+   }
+   ========================================================================== */
+
+const NOTES = [
+
+{
+  id: "node-project-structure",
+  title: "Project structure — how a Node backend is laid out, and why it's split that way",
+  category: "Project Structure",
+  tags: ["nodejs", "structure", "basics"],
+  body: `
+    <p>A Node backend splits into two halves. <b>The root folder</b> holds files that <i>describe and configure</i> the project — dependencies, secrets, formatting rules. <b><code>src/</code></b> holds every line of code you actually write.</p>
+    <p>Inside <code>src</code>, files are grouped by <b>the job they do</b>, not by feature: everything that talks to the database in one place, everything that decides what happens on a request in another. The payoff comes months later — you look for a <i>kind</i> of thing and already know which folder it's in.</p>
+    <p>None of this is enforced by Node or Express. It's a convention — but a near-universal one, so following it makes your project instantly readable to any other backend dev.</p>
+  `,
+  highlight: `Each folder should be replaceable without touching the others. If your route file contains database queries, the structure is only decorative — the whole point is that swapping the database touches db/ and models/ and nothing else.`,
+  examples: [
+    { label: "The typical tree", code:
+`my-app/
+├── node_modules/          installed package code — auto-generated, never committed
+├── public/                files served as-is (images, uploads, temp)
+├── src/
+│   ├── index.js           entry point: load env, connect DB, start the server
+│   ├── app.js             builds the Express app: middlewares + routers
+│   ├── constants.js       fixed values: DB name, enums, roles
+│   ├── db/                database connection code
+│   ├── models/            the shape of each collection / table
+│   ├── controllers/       what actually happens for each endpoint
+│   ├── routes/            URL + method  →  controller
+│   ├── middlewares/       code that runs before the controller (auth, uploads)
+│   └── utils/             small reusable helpers
+├── .env                   real secrets — gitignored
+├── .env.sample            same keys, fake values — committed
+├── .gitignore
+├── .prettierrc
+├── eslint.config.js
+├── package.json
+├── package-lock.json
+└── README.md` }
+  ]
+},
+
+{
+  id: "root-level-files",
+  title: "Root-level files — everything outside src that configures the project",
+  category: "Project Structure",
+  tags: ["nodejs", "structure", "config", "npm"],
+  body: `
+    <p>None of these run your app. They tell tools — npm, git, your editor, CI — how to treat the project.</p>
+    <ul>
+      <li><b><code>package.json</code></b> — the project's ID card: its name, its <code>scripts</code> (<code>npm run dev</code>), and the list of dependencies. The one file here you hand-edit regularly.</li>
+      <li><b><code>package-lock.json</code></b> — the exact resolved version of every package <i>and</i> every package's packages. Auto-generated. <b>Commit it</b> — it's what makes an install on another machine identical to yours.</li>
+      <li><b><code>node_modules/</code></b> — the actual downloaded code of those packages. Huge, auto-generated, never committed; <code>npm install</code> rebuilds it from the two files above.</li>
+      <li><b><code>.env</code></b> — real config and secrets for <i>this</i> machine: database URL, JWT secret, port, API keys. Never committed.</li>
+      <li><b><code>.env.sample</code></b> — the same keys with fake values, committed, so the next person (or future you) knows exactly what needs filling in.</li>
+      <li><b><code>.gitignore</code></b> — the list of things git must ignore: <code>node_modules</code>, <code>.env</code>, logs, build output.</li>
+      <li><b><code>README.md</code></b> — what this project is and how to run it. The first thing anyone opens.</li>
+      <li><b>ESLint config</b> (<code>eslint.config.js</code>) — rules that catch real mistakes as you type: unused variables, forgotten <code>await</code>, undefined names.</li>
+      <li><b>Prettier config</b> (<code>.prettierrc</code>, <code>.prettierignore</code>) — pure formatting: quotes, semicolons, line width. It ends style arguments by making them automatic.</li>
+    </ul>
+    <p>Common extras as a project grows: <code>nodemon.json</code> (restart the server on save), <code>Dockerfile</code> / <code>docker-compose.yml</code>, <code>.github/workflows/</code> for CI, and <code>tsconfig.json</code> on a TypeScript project.</p>
+  `,
+  highlight: `Put node_modules and .env into .gitignore before your first commit. A secret that ever reached git history stays in it — deleting the line later does not remove it, you have to rotate the key.`,
+  examples: [
+    { label: ".gitignore", code:
+`node_modules
+.env
+dist
+*.log` },
+    { label: "package.json (the parts that matter early)", code:
+`{
+  "name": "my-app",
+  "type": "module",                      // lets you use import instead of require
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {                      // needed to run in production
+    "express": "^4.19.2",
+    "mongoose": "^8.4.0"
+  },
+  "devDependencies": {                   // only needed while developing
+    "nodemon": "^3.1.0",
+    "prettier": "^3.3.0"
+  }
+}` }
+  ]
+},
+
+{
+  id: "src-entry-files",
+  title: "index.js, app.js and constants.js — the three loose files at the top of src",
+  category: "Project Structure",
+  tags: ["nodejs", "express", "structure"],
+  body: `
+    <p>Everything else in <code>src</code> is a folder. These three files sit loose at the top because each one is a single, one-off job.</p>
+    <ul>
+      <li><b><code>index.js</code> — the entry point.</b> It loads the <code>.env</code> file, connects to the database, and only then starts the server listening. This is the file <code>npm run dev</code> points at.</li>
+      <li><b><code>app.js</code> — builds the Express app.</b> It creates <code>app</code>, applies the configuration middlewares every request passes through, and mounts the routers. It <b>exports</b> the app; it never starts it.</li>
+      <li><b><code>constants.js</code> — values that must never be typed twice.</b> The database name, enums like user roles or order statuses, fixed limits. Not secrets (those live in <code>.env</code>) — just fixed facts.</li>
+    </ul>
+    <p>The middlewares in <code>app.js</code> are the ones that make request data usable before any of your code sees it: <code>express.json()</code> turns a JSON request body into <code>req.body</code>, <code>express.urlencoded()</code> does the same for HTML form submissions, <code>cookieParser()</code> turns the cookie header into <code>req.cookies</code>, <code>cors()</code> decides which other origins may call this API, and <code>express.static()</code> serves a folder of files as-is.</p>
+  `,
+  highlight: `app.js builds the app but never calls listen() — index.js does. Keeping them apart means the DB must connect before a single request is accepted, and tests can import the app without opening a port.`,
+  examples: [
+    { label: "src/index.js", code:
+`import dotenv from "dotenv";
+import connectDB from "./db/index.js";
+import app from "./app.js";
+
+dotenv.config({ path: "./.env" });      // must run before anything reads process.env
+
+connectDB()
+  .then(() => {
+    const port = process.env.PORT || 8000;
+    app.listen(port, () => console.log("server listening on port " + port));
+  })
+  .catch((err) => {
+    console.log("DB connection failed", err);
+    process.exit(1);                    // no DB = no point staying up
+  });` },
+    { label: "src/app.js", code:
+`import express from "express";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+
+const app = express();
+
+app.use(cors({ origin: process.env.CORS_ORIGIN, credentials: true }));
+app.use(express.json({ limit: "16kb" }));         // JSON body   -> req.body
+app.use(express.urlencoded({ extended: true }));  // form body   -> req.body
+app.use(cookieParser());                          // cookies     -> req.cookies
+app.use(express.static("public"));                // serve /public as-is
+
+import userRouter from "./routes/user.routes.js";
+app.use("/api/v1/users", userRouter);             // mount the router
+
+export default app;                               // no listen() here` },
+    { label: "src/constants.js", code:
+`export const DB_NAME = "videotube";
+export const USER_ROLES = { ADMIN: "admin", USER: "user" };
+export const MAX_UPLOAD_MB = 16;` }
+  ]
+},
+
+{
+  id: "src-folders",
+  title: "The folders inside src — db, models, controllers, routes, middlewares, utils",
+  category: "Project Structure",
+  tags: ["nodejs", "express", "structure", "mvc"],
+  body: `
+    <p>Each folder holds one layer of the journey a request takes. Files are named after the thing plus the layer: <code>user.model.js</code>, <code>user.controller.js</code>, <code>user.routes.js</code>.</p>
+    <ul>
+      <li><b><code>db/</code></b> — the connection code, usually a single <code>connectDB()</code> function that dials the database using the URL from <code>.env</code> and the name from <code>constants.js</code>. All database-vendor-specific setup stays here.</li>
+      <li><b><code>models/</code></b> — the shape of your data. One file per collection/table: its fields and types, validation rules, indexes, and hooks (like hashing a password before saving).</li>
+      <li><b><code>controllers/</code></b> — the actual work of each endpoint: read the request, check the input, call the model, send a response. This is where your business logic lives.</li>
+      <li><b><code>routes/</code></b> — the map. Which URL and method go to which controller, and which middlewares run first. A route file should contain no logic at all — just wiring.</li>
+      <li><b><code>middlewares/</code></b> — functions that run between the request and the controller: verifying a JWT and attaching <code>req.user</code>, handling file uploads, rate limiting, and the central error handler.</li>
+      <li><b><code>utils/</code></b> — small reusable helpers that know nothing about routes or requests: an <code>ApiError</code> class, a standard <code>ApiResponse</code> shape, an <code>asyncHandler</code> wrapper, file-upload or email helpers.</li>
+    </ul>
+    <p><b>"More, depends on the project"</b> usually means: <code>services/</code> (logic too big for a controller, or shared by several), <code>validators/</code> (input schemas), <code>config/</code>, <code>jobs/</code> or <code>workers/</code> (background tasks), <code>tests/</code>, and <code>types/</code> on TypeScript projects.</p>
+  `,
+  highlight: `Routes and controllers are the two that rot first. An if-statement inside a route file, or a 200-line controller doing validation + database + email, is the signal to move that work into middlewares/, utils/, or a new services/ folder.`,
+  examples: [
+    { label: "One request, folder by folder", code:
+`GET /api/v1/users/me
+
+app.js         prefix /api/v1/users matches   ->  routes/user.routes.js
+routes         path /me matches, verifyJWT    ->  middlewares/auth.middleware.js
+middleware     token ok, sets req.user        ->  next()
+controller     getCurrentUser(req, res)       ->  controllers/user.controller.js
+model          User.findById(req.user._id)    ->  models/user.model.js
+db             uses the connection from       ->  db/index.js
+response       res.json(new ApiResponse(200, user))` },
+    { label: "routes/user.routes.js — wiring only", code:
+`import { Router } from "express";
+import { registerUser, getCurrentUser } from "../controllers/user.controller.js";
+import { verifyJWT } from "../middlewares/auth.middleware.js";
+
+const router = Router();
+
+router.route("/register").post(registerUser);              // public
+router.route("/me").get(verifyJWT, getCurrentUser);        // logged in only
+
+export default router;` }
+  ]
+}
+
+];
+
+/* ==========================================================================
+   RENDERING + SEARCH  (you normally don't need to touch anything below)
+   ========================================================================== */
+
+const $ = (s) => document.querySelector(s);
+const notesEl = $("#notes"), tocEl = $("#toc"), chipsEl = $("#chips");
+let query = "", activeCat = "all";
+
+const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const strip = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+// Plain-text blob used for matching.
+NOTES.forEach(n => {
+  n._hay = [
+    n.title, n.category, (n.tags || []).join(" "),
+    strip(n.body || ""), n.highlight || "",
+    (n.examples || []).map(e => (e.label || "") + " " + e.code).join(" ")
+  ].join(" ").toLowerCase();
+});
+
+const terms = () => query.toLowerCase().split(/\s+/).filter(Boolean);
+const matches = (n) => terms().every(t => n._hay.includes(t));
+
+// Highlight search terms without breaking HTML tags.
+function hl(html){
+  const t = terms();
+  if (!t.length) return html;
+  const re = new RegExp("(" + t.map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "gi");
+  return html.split(/(<[^>]+>)/g)
+    .map(part => part.startsWith("<") ? part : part.replace(re, "<mark>$1</mark>"))
+    .join("");
+}
+
+function noteHTML(n){
+  const ex = (n.examples || []).map(e => `
+    <div class="ex">
+      ${e.label ? `<div class="ex-label">${hl(esc(e.label))}</div>` : ""}
+      <pre>${hl(esc(e.code))}</pre>
+    </div>`).join("");
+
+  const tags = (n.tags || []).map(t =>
+    `<button class="tag" data-tag="${esc(t)}">#${hl(esc(t))}</button>`).join("");
+
+  return `
+    <article id="${n.id}">
+      <h3>${hl(n.title)} <a class="anchor" href="#${n.id}" title="Link to this note">#</a></h3>
+      <div class="body">${hl(n.body)}</div>
+      ${n.highlight ? `<div class="callout"><b>Worth remembering</b>${hl(n.highlight)}</div>` : ""}
+      ${ex}
+      ${tags ? `<div class="tags">${tags}</div>` : ""}
+    </article>`;
+}
+
+function render(){
+  const visible = NOTES.filter(n =>
+    (activeCat === "all" || n.category === activeCat) && matches(n));
+
+  // category chips (counts respect the search, not the active category)
+  const cats = [...new Set(NOTES.map(n => n.category))];
+  const searchHit = NOTES.filter(matches);
+  chipsEl.innerHTML =
+    `<button class="chip" data-cat="all" aria-pressed="${activeCat === "all"}">All <span class="n">${searchHit.length}</span></button>` +
+    cats.map(c => {
+      const count = searchHit.filter(n => n.category === c).length;
+      return `<button class="chip" data-cat="${esc(c)}" aria-pressed="${activeCat === c}">${esc(c)} <span class="n">${count}</span></button>`;
+    }).join("");
+
+  if (!NOTES.length){
+    notesEl.innerHTML = `<div class="empty">Nothing here yet — first note lands soon.</div>`;
+    tocEl.innerHTML = "";
+    chipsEl.innerHTML = "";
+  } else if (!visible.length){
+    notesEl.innerHTML = `<div class="empty">No notes match <code>${esc(query)}</code>.</div>`;
+    tocEl.innerHTML = "";
+  } else {
+    let html = "", seen = null;
+    for (const n of visible){
+      if (n.category !== seen){ seen = n.category; html += `<h2 class="cat-head" id="cat-${n.category.replace(/\W+/g,"-").toLowerCase()}">${esc(seen)}</h2>`; }
+      html += noteHTML(n);
+    }
+    notesEl.innerHTML = html;
+    tocEl.innerHTML = visible.map(n => `<a href="#${n.id}">${esc(n.title.split("—")[0].trim())}</a>`).join("");
+  }
+
+  document.body.classList.toggle("no-notes", NOTES.length === 0);
+  $("#meta").textContent = NOTES.length
+    ? `${NOTES.length} note${NOTES.length === 1 ? "" : "s"}` + (query || activeCat !== "all" ? ` · showing ${visible.length}` : "")
+    : "";
+}
+
+/* events */
+$("#search").addEventListener("input", (e) => { query = e.target.value.trim(); render(); });
+
+chipsEl.addEventListener("click", (e) => {
+  const b = e.target.closest(".chip");
+  if (!b) return;
+  activeCat = b.dataset.cat;
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+notesEl.addEventListener("click", (e) => {
+  const t = e.target.closest(".tag");
+  if (!t) return;
+  query = t.dataset.tag;
+  activeCat = "all";
+  $("#search").value = query;
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+document.addEventListener("keydown", (e) => {
+  const s = $("#search");
+  if (e.key === "/" && document.activeElement !== s){ e.preventDefault(); s.focus(); s.select(); }
+  if (e.key === "Escape" && document.activeElement === s){ s.value = ""; query = ""; render(); s.blur(); }
+});
+
+/* theme toggle: system → light → dark */
+const root = document.documentElement;
+const saved = localStorage.getItem("theme");
+if (saved) root.setAttribute("data-theme", saved);
+$("#theme").addEventListener("click", () => {
+  const cur = root.getAttribute("data-theme");
+  const next = cur === "light" ? "dark" : cur === "dark" ? null : "light";
+  if (next){ root.setAttribute("data-theme", next); localStorage.setItem("theme", next); }
+  else { root.removeAttribute("data-theme"); localStorage.removeItem("theme"); }
+});
+
+/* footer */
+$("#footer").innerHTML =
+  `My running notes on backend engineering. Written in plain language, updated as I learn. ` +
+  `Press <code>/</code> to search. Last updated: ${new Date(document.lastModified).toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"})}.`;
+
+render();
+if (location.hash){ const el = document.querySelector(location.hash); if (el) el.scrollIntoView(); }
+</script>
+</body>
+</html>
