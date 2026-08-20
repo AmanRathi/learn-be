@@ -397,6 +397,50 @@ router.route("/me").get(verifyJWT, getCurrentUser);        // logged in only
 
 export default router;` }
   ]
+},
+
+{
+  id: "dotenv",
+  title: "dotenv — how the secrets in your .env file end up inside process.env",
+  category: "Project Structure",
+  tags: ["nodejs", "structure", "config", "env"],
+  body: `
+    <p>Node gives every running program an object called <code>process.env</code> holding the environment variables it was started with. <code>dotenv</code> is a small package that reads a <code>.env</code> file from disk and copies its key/value pairs into that object. That is the whole job — it is a loader, nothing more.</p>
+    <p><b>Why it exists.</b> Some settings change per machine: the database URL, the port, an API key, a password. They can't be hardcoded in your source, because source gets committed to git and shared with everyone. <code>process.env</code> is the right place for them, but typing out a dozen variables by hand every time you start the server is painful — so you put them in a file that git ignores, and dotenv loads it for you.</p>
+    <ul>
+      <li><b>Load order matters.</b> <code>config()</code> has to run before any module that reads <code>process.env</code> while being imported. That's why you see it on the first line of <code>index.js</code>, or passed as <code>node -r dotenv/config src/index.js</code>.</li>
+      <li><b>Everything comes out a string.</b> <code>process.env.PORT</code> is <code>"4000"</code>, not <code>4000</code>. A variable set to <code>false</code> is the string <code>"false"</code>, which is truthy. Convert it yourself.</li>
+      <li><b>It won't overwrite what's already set.</b> If <code>PORT</code> exists in the real environment, dotenv leaves it alone. That's deliberate: production sets real environment variables, and a stray <code>.env</code> shouldn't clobber them.</li>
+      <li><b><code>.env</code> goes in <code>.gitignore</code>.</b> Commit a <code>.env.example</code> with the same keys but fake values, so whoever clones the repo knows what to fill in.</li>
+      <li><b>It's a development convenience, not a production mechanism.</b> On a real server the variables come from the platform — Docker, systemd, Railway, ECS — and dotenv often isn't installed at all.</li>
+    </ul>
+    <p>Node 20.6 and later can do this without the package, via <code>node --env-file=.env src/index.js</code>. dotenv is still the common convention, so most courses and codebases use it.</p>
+  `,
+  highlight: `Every value out of process.env is a string. process.env.PORT + 1 gives you "40001", and a flag set to false is the truthy string "false".`,
+  examples: [
+    { label: ".env — never committed", code:
+`PORT=4000
+MONGODB_URI=mongodb://127.0.0.1:27017
+ACCESS_TOKEN_SECRET=dev-only-not-the-real-one
+CORS_ORIGIN=http://localhost:5173`},
+    { label: "src/index.js — loaded first, before anything reads it", code:
+`import dotenv from "dotenv";
+dotenv.config({ path: "./.env" });        // must come before the imports that use it
+
+import connectDB from "./db/index.js";
+import app from "./app.js";
+
+connectDB().then(() => {
+  const port = Number(process.env.PORT) || 8000;   // string -> number, on purpose
+  app.listen(port, () => console.log("listening on " + port));
+});`},
+    { label: "Bad vs good", code:
+`BAD   — the secret is now in git history forever
+        mongoose.connect("mongodb+srv://admin:hunter2@cluster0.mongodb.net")
+
+GOOD  — the value lives in .env, the code only names it
+        mongoose.connect(process.env.MONGODB_URI)`}
+  ]
 }
 
 ];
