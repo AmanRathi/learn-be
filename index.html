@@ -441,6 +441,69 @@ connectDB().then(() => {
 GOOD  — the value lives in .env, the code only names it
         mongoose.connect(process.env.MONGODB_URI)`}
   ]
+},
+
+{
+  id: "cors-and-vite-proxy",
+  title: "CORS and the Vite proxy — why localhost:5173 can't call localhost:8000, and the other ways around it",
+  category: "HTTP & APIs",
+  tags: ["cors", "vite", "express", "frontend"],
+  body: `
+    <p>Run the frontend on one port and the backend on another and the first <code>fetch</code> between them fails with a CORS error. Nothing is broken — the browser is doing its job.</p>
+    <p><b>The rule.</b> An <i>origin</i> is the combination of scheme + host + port. <code>http://localhost:5173</code> and <code>http://localhost:8000</code> differ in the port, so they are two different origins. By default a browser will not let a page read a response from a different origin than the page itself. That's the same-origin policy, and it exists so a random tab you have open can't quietly call your bank's API using your logged-in cookies.</p>
+    <p><b>CORS is the exception mechanism.</b> Cross-Origin Resource Sharing is the backend's way of saying "this particular origin is allowed to read my responses", which it does by sending an <code>Access-Control-Allow-Origin</code> header. No header, no read. Note the block happens <i>in the browser</i> — the request usually reached your server and ran; the browser just refuses to hand the result to your JavaScript. That's why the same call works fine in Postman or curl, which have no same-origin policy at all.</p>
+    <p><b>The Vite proxy — what I set up.</b> Instead of asking the backend for permission, you remove the cross-origin call entirely. You tell the Vite dev server: any request starting with <code>/api</code>, forward it to the backend. Your page then only ever talks to <code>localhost:5173</code>, its own origin, so the policy never applies. Vite forwards the request server-to-server, where CORS isn't a thing.</p>
+    <p><b>The other ways round it.</b></p>
+    <ul>
+      <li><b>Whitelist the origin on the backend</b> — the <code>cors</code> middleware in Express, given the exact frontend origin to trust. This is the real fix, and the one you need in production where there's no Vite dev server.</li>
+      <li><b>Allow everything with <code>*</code></b> — quick, and fine for a genuinely public read-only API. Don't reach for it as a way to make an error go away, and note it flatly cannot be combined with cookies.</li>
+      <li><b>Make them the same origin</b> — serve the built frontend from the backend itself, or put both behind one domain with a reverse proxy like nginx (<code>/api</code> to the backend, everything else to the frontend). Same origin, so there's nothing to allow.</li>
+    </ul>
+  `,
+  highlight: `The Vite proxy only exists while the dev server is running. It makes the error disappear on your machine and does nothing in production — that deployment still needs a whitelisted origin or a same-origin setup. Also: origin "*" and credentials: true cannot be used together, the browser rejects the combination.`,
+  examples: [
+    { label: "Why the browser refuses", code:
+`page origin      http://localhost:5173
+request to       http://localhost:8000/api/v1/users/me
+                 scheme same, host same, port differs -> different origin
+
+response comes back 200, but with no Access-Control-Allow-Origin header
+browser discards it and logs:
+  Access to fetch at 'http://localhost:8000/api/v1/users/me' from origin
+  'http://localhost:5173' has been blocked by CORS policy
+
+curl http://localhost:8000/api/v1/users/me    ->  works, no policy involved`},
+    { label: "vite.config.js — the proxy", code:
+`import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      "/api": {
+        target: "http://localhost:8000",   // where the backend actually lives
+        changeOrigin: true                 // rewrite the Host header to the target
+      }
+    }
+  }
+});
+
+// in the frontend, call the relative path — never the full backend URL
+fetch("/api/v1/users/me")`},
+    { label: "app.js — whitelisting instead", code:
+`import express from "express";
+import cors from "cors";
+
+const app = express();
+
+app.use(cors({
+  origin: process.env.CORS_ORIGIN,   // "http://localhost:5173" in dev, the real domain in prod
+  credentials: true                  // required if the frontend sends cookies
+}));
+
+export default app;`}
+  ]
 }
 
 ];
