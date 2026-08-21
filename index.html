@@ -435,8 +435,8 @@ connectDB().then(() => {
   app.listen(port, () => console.log("listening on " + port));
 });`},
     { label: "Bad vs good", code:
-`BAD   — the secret is now in git history forever
-        mongoose.connect("mongodb+srv://admin:hunter2@cluster0.mongodb.net")
+`BAD   — the real username and password sit in the source, and in git history forever
+        mongoose.connect("mongodb+srv://<user>:<password>@<cluster>.mongodb.net")
 
 GOOD  — the value lives in .env, the code only names it
         mongoose.connect(process.env.MONGODB_URI)`}
