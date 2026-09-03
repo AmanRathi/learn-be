@@ -504,6 +504,63 @@ app.use(cors({
 
 export default app;`}
   ]
+},
+
+{
+  id: "databases-orm-odm",
+  title: "Databases, ORMs and ODMs — the layer that sits between your Node code and where the data actually lives",
+  category: "Databases",
+  tags: ["mongodb", "sql", "mongoose", "orm"],
+  body: `
+    <p>The databases you'll meet first split into two families, and the difference is simply <b>who decides the shape of your data</b>.</p>
+    <p><b>SQL / relational — MySQL, Postgres, SQLite.</b> Data lives in <i>tables</i> with fixed <i>columns</i>. You declare the shape up front — <code>users</code> has an <code>id</code>, an <code>email</code> that must be a unique string, a <code>created_at</code> — and the database itself enforces it. Insert a row with a missing column or a wrong type and it is rejected. Tables point at each other with foreign keys, and you recombine them when querying using <code>JOIN</code>.</p>
+    <ul>
+      <li><b>Postgres</b> — the default serious choice today: strictest, most features, and can store JSON documents too when you want them.</li>
+      <li><b>MySQL</b> — equally common and older, with an enormous amount of existing code and cheap hosting built around it.</li>
+      <li><b>SQLite</b> — the odd one out. No server process at all: the entire database is one file on disk. Same SQL language, so it's ideal for local development, tests, and small tools.</li>
+    </ul>
+    <p><b>NoSQL / document — MongoDB.</b> Data lives in <i>collections</i> of <i>documents</i>, and a document is basically JSON: nested objects, arrays, any shape you like. Nothing is declared up front and nothing is enforced — two documents in the same collection can have entirely different fields and Mongo won't object. That flexibility is both the selling point and the trap.</p>
+    <p><b>Why you don't talk to the database directly.</b> Every database ships a <i>driver</i>, a low-level package that opens a connection and sends raw queries. You can build on it, but it gives you nothing: no validation, no help with relations, no protection from a typo, and queries assembled by gluing strings together — which is how SQL injection happens. So you put a library in between.</p>
+    <p><b>That library is an ORM or an ODM.</b> They do the same job — map what's stored into ordinary JavaScript objects so you write JS instead of query syntax — and differ only in what sits underneath:</p>
+    <ul>
+      <li><b>ORM</b>, Object–<b>Relational</b> Mapper, for SQL databases. "Relational" means tables, so its work is turning rows into objects and object relationships into <code>JOIN</code>s. Prisma, Drizzle, Sequelize, TypeORM.</li>
+      <li><b>ODM</b>, Object–<b>Document</b> Mapper, for document databases. "Document" means JSON-ish, and those shapes already match JavaScript closely, so an ODM is a thinner layer than an ORM. <b>Mongoose</b> is the one for MongoDB.</li>
+    </ul>
+    <p>Both give you type casting, defaults, hooks (hash the password before every save), references you can populate, and safely built queries. But the headline for Mongo is bigger than convenience: <b>MongoDB has no schema, and Mongoose gives you one anyway</b> — declared in your model file and enforced in your application.</p>
+  `,
+  highlight: `A Mongoose schema is enforced by your Node process, not by the database. Anything writing through a different app, a script, or the Mongo shell bypasses every rule you declared, and documents saved before you added a field keep their old shape forever. A SQL database enforces its schema itself, so it has no equivalent hole.`,
+  examples: [
+    { label: "The same user, two families", code:
+`SQL — a row in a table with declared columns
+  id | username | email       | age
+   1 | aman     | a@b.com     | 24
+  the database rejects a row missing username, or with age = "old"
+
+MongoDB — a document in a collection
+  { _id: ObjectId("..."), username: "aman", email: "a@b.com", age: 24 }
+  and the very next document is allowed to be
+  { _id: ObjectId("..."), name: "aman", tags: ["a"], age: "old" }`},
+    { label: "Raw driver vs the ODM", code:
+`DRIVER — plain data back, nothing checked, nothing helped
+  const user = await db.collection("users").findOne({ email: "a@b.com" });
+  user.emial;                      // undefined, no error, the typo just ships
+
+MONGOOSE — a model that knows the shape
+  const user = await User.findOne({ email: "a@b.com" });
+  await User.create({ email: "a@b.com" });
+  // throws ValidationError: username is required`},
+    { label: "models/user.model.js — the schema Mongo doesn't have", code:
+`import mongoose from "mongoose";
+
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  email:    { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  age:      { type: Number, min: 13 }
+}, { timestamps: true });          // adds createdAt and updatedAt for you
+
+export const User = mongoose.model("User", userSchema);`}
+  ]
 }
 
 ];
