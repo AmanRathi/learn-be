@@ -616,6 +616,64 @@ later when a document saves with no email and no dates on it.`},
 Mongoose lowercases and pluralises: "User" -> users, "Video" -> videos,
 "Category" -> categories.`}
   ]
+},
+
+{
+  id: "objectid-ref",
+  title: "ObjectId and ref — MongoDB's version of a foreign key, without the enforcement",
+  category: "Databases",
+  tags: ["mongodb", "mongoose", "schema", "relations"],
+  body: `
+    <p>When one document belongs to another, you don't copy the whole thing in — you store its <code>_id</code> and point at it. Two parts do that:</p>
+    <ul>
+      <li><b><code>type: mongoose.Schema.Types.ObjectId</code></b> — the field holds an id, the 12-byte value MongoDB puts on every document as <code>_id</code>. Not a string, its own type.</li>
+      <li><b><code>ref: "Category"</code></b> — <i>which</i> collection that id belongs to. The string has to match the model name you registered with <code>mongoose.model("Category", ...)</code> exactly, because that's how Mongoose looks it up later.</li>
+    </ul>
+    <p>On its own this stores nothing but an id. To get the real document you ask for it with <b><code>.populate()</code></b>, which swaps the id in the result for the whole document it points at. Worth knowing what that costs: it is not a <code>JOIN</code>. Mongoose runs a <i>second query</i> against the other collection and stitches the results together in Node. The database isn't doing the work — your app is.</p>
+    <p><b>How this is like a foreign key:</b> same idea, same purpose — one record pointing at another instead of duplicating it, so updating the category updates it everywhere at once.</p>
+    <p><b>How it isn't:</b> a SQL foreign key is a <i>constraint the database enforces</i>. It refuses to insert a row pointing at an id that doesn't exist, and refuses to delete a row that others still point at (or cascades, if you asked it to). MongoDB does none of that. <code>ref</code> is a note to Mongoose about where to look during <code>populate()</code> — nothing more. Nothing checks the id is real, and nothing stops you deleting the thing being pointed at.</p>
+  `,
+  highlight: `Nothing enforces the reference. You can save a category id that never existed, and deleting a Category leaves every document pointing at it holding a dead id — no error, no cascade. Those documents populate as null, which is where the crash finally shows up, far from the delete that caused it. Cleaning up after a delete is your code's job, not the database's.`,
+  examples: [
+    { label: "The two models", code:
+`// models/category.model.js
+const categorySchema = new mongoose.Schema({ name: { type: String, required: true } });
+export const Category = mongoose.model("Category", categorySchema);
+
+// models/product.model.js
+const productSchema = new mongoose.Schema({
+  title:    { type: String, required: true },
+  category: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Category"                          // matches the name above, exactly
+  },
+  tags: [{ type: mongoose.Schema.Types.ObjectId, ref: "Tag" }]   // many, in an array
+}, { timestamps: true });`},
+    { label: "What is stored vs what you get back", code:
+`stored in MongoDB — just an id
+  { _id: ObjectId("a1..."), title: "Keyboard", category: ObjectId("b2...") }
+
+await Product.findById(id)
+  { _id: ..., title: "Keyboard", category: ObjectId("b2...") }
+  product.category.name   ->  undefined
+
+await Product.findById(id).populate("category")
+  { _id: ..., title: "Keyboard", category: { _id: ObjectId("b2..."), name: "Input" } }
+  product.category.name   ->  "Input"
+
+populate("category") runs a second query on the categories collection.`},
+    { label: "SQL would stop you — Mongo won't", code:
+`SQL
+  DELETE FROM categories WHERE id = 5;
+  ERROR: update or delete violates foreign key constraint on table "products"
+
+MongoDB
+  await Category.findByIdAndDelete(id);       // succeeds, no complaint
+
+  every product still holds that id, and now
+  await Product.findById(p).populate("category")
+  -> category: null`}
+  ]
 }
 
 ];
