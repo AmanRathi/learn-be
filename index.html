@@ -561,6 +561,61 @@ const userSchema = new mongoose.Schema({
 
 export const User = mongoose.model("User", userSchema);`}
   ]
+},
+
+{
+  id: "mongoose-schema-syntax",
+  title: "mongoose.Schema syntax — the two arguments it takes, and the typos in it that fail silently",
+  category: "Databases",
+  tags: ["mongodb", "mongoose", "schema"],
+  body: `
+    <p>A model file is really just three statements: build a schema, hand it to <code>mongoose.model()</code>, export the result.</p>
+    <p><b><code>new mongoose.Schema(definition, options)</code> takes two objects</b>, and mixing them up is the usual source of confusion.</p>
+    <ul>
+      <li>The <b>first</b> describes your fields — one key per field.</li>
+      <li>The <b>second</b> is settings for the schema as a whole, not for any one field. <code>timestamps: true</code> lives here.</li>
+    </ul>
+    <p><b>Inside a field</b>, <code>type</code> is the JavaScript constructor itself — <code>String</code>, <code>Number</code>, <code>Boolean</code>, <code>Date</code> — not the word in quotes. Everything alongside it is a rule: <code>required: true</code> refuses to save the document without it, and the others (<code>unique</code>, <code>lowercase</code>, <code>trim</code>, <code>min</code>) shape or check the value. A field needing no rules can skip the object entirely and be written as just <code>email: String</code>.</p>
+    <p><b><code>timestamps: true</code></b> tells Mongoose to add and maintain two <code>Date</code> fields for you: <code>createdAt</code>, set once when the document is first saved, and <code>updatedAt</code>, rewritten on every save after that. You never set them yourself.</p>
+    <p><b><code>mongoose.model("User", userSchema)</code></b> compiles the schema into the thing you actually query — <code>User.create()</code>, <code>User.findOne()</code>. The string is the model name, and Mongoose derives the real collection name from it by lowercasing and pluralising: <code>"User"</code> becomes a collection called <code>users</code>. That's why the name in your code and the name you see in Compass never quite match.</p>
+  `,
+  highlight: `Both of the easy mistakes here fail silently — no crash, no warning, and a schema that simply doesn't enforce what you think it does. required: String is a function, so Mongoose reads it as a conditional rule instead of a boolean and the field ends up optional. timestamp: true is not a real option, so it is ignored and you get no createdAt or updatedAt. Only required: true and timestamps: true work.`,
+  examples: [
+    { label: "models/user.model.js — the shape of the file", code:
+`import mongoose from "mongoose";
+
+const userSchema = new mongoose.Schema(
+  {                                  // 1st argument: the fields
+    email: {
+      type: String,                  // the constructor, not "String"
+      required: true                 // won't save without it
+    }
+  },
+  { timestamps: true }               // 2nd argument: schema-wide options
+);                                   // -> adds createdAt and updatedAt
+
+export const User = mongoose.model("User", userSchema);`},
+    { label: "The two silent typos", code:
+`required: String     WRONG.  String is a function. Mongoose accepts a function
+                             there for conditional rules, calls it, gets ""
+                             back — falsy — so the field is NOT required.
+required: true       RIGHT.
+
+timestamp: true      WRONG.  Not an option Mongoose knows. Unknown options are
+                             ignored, so no createdAt or updatedAt appear.
+timestamps: true     RIGHT.  Plural.
+
+Neither typo throws. The file loads, the server starts, and you find out
+later when a document saves with no email and no dates on it.`},
+    { label: "Model name vs collection name", code:
+`mongoose.model("User", userSchema)
+
+  in code        User.findOne({ email: "a@b.com" })
+  in MongoDB     db.users.findOne({ email: "a@b.com" })
+
+Mongoose lowercases and pluralises: "User" -> users, "Video" -> videos,
+"Category" -> categories.`}
+  ]
 }
 
 ];
