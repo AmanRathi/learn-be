@@ -694,6 +694,342 @@ MongoDB
   await Product.findById(p).populate("category")
   -> category: null`}
   ]
+},
+
+{
+  id: "postgres-is-a-server",
+  title: "Postgres is a server, not a library — your app can crash and the data stays",
+  category: "Databases",
+  tags: ["postgres", "sql"],
+  body: `
+    <p>This is the idea everything else rests on. Postgres is a <b>separate program running in the background</b>, listening on port 5432, holding your data in files on disk. It has nothing to do with your Node process and doesn't care whether it's running.</p>
+    <ul>
+      <li>Your app can crash — the data is untouched.</li>
+      <li>You can insert rows with <code>psql</code> while the app is stopped, and the app sees them when it starts again.</li>
+      <li>Your API, <code>psql</code>, and a GUI tool are three separate clients all talking to the same server, all seeing the same data.</li>
+    </ul>
+    <p>That's why <code>npm install pg</code> doesn't get you a database — it gets you a client that dials one. Which also means <b>most beginner connection errors are just "the server isn't running"</b>.</p>
+    <p><b>One server, many databases.</b> You don't want a separate Postgres install per project. Homebrew installs globally (the directory you run <code>brew</code> from is irrelevant — unlike npm, there's no project-local option), and isolation happens one level down: one server, with a database inside it per project. Same shape as installing Node once and having per-project <code>node_modules</code>.</p>
+  `,
+  highlight: `Stop your Node server, insert a row by hand in psql, restart, and GET the list — the row is there. Your app didn't create that data and wasn't even running when it appeared. If one thing from the whole exercise is worth internalising, it's that.`,
+  examples: [
+    { label: "One server, a database per project", code:
+`Postgres server (one, global, port 5432)
+├── postgres          <- default, ships with the install
+├── bookmarks_dev     <- this project
+└── some_other_app    <- next project
+
+server is global, data is per-project`},
+    { label: "Running it (Homebrew, macOS)", code:
+`brew install postgresql@17
+
+brew services start postgresql@17    # start now, and on every login
+brew services stop postgresql@17
+brew services list                   # want to see: started
+
+createdb bookmarks_dev               # a database for this project
+dropdb   bookmarks_dev`},
+    { label: "The error that means nothing is listening", code:
+`psql: error: connection to server on socket "/tmp/.s.PGSQL.5432"
+failed: No such file or directory
+
+When Postgres starts it creates that socket file for local clients.
+No file means no server process ever created one. So this is not a
+permissions problem or a wrong database name — nothing is running.
+
+  brew services start postgresql@17
+  brew services list
+
+If it says "error", read the log:
+  tail -50 /opt/homebrew/var/log/postgresql@17.log
+
+If it says started but psql still fails, the data directory was never
+initialised (a once-ever command):
+  ls     /opt/homebrew/var/postgresql@17     # empty or missing?
+  initdb /opt/homebrew/var/postgresql@17
+  brew services restart postgresql@17`}
+  ]
+},
+
+{
+  id: "psql-the-client",
+  title: "psql — the terminal client, and knowing which prompt you're typing into",
+  category: "Databases",
+  tags: ["postgres", "psql", "sql"],
+  body: `
+    <p><code>psql</code> is just a program that connects to the Postgres server and sends it SQL. It has no special status: you are one client, your Node app is another, and both see the same data.</p>
+    <p><b>Know where you are.</b> Most early confusion is typing the right thing at the wrong prompt.</p>
+    <ul>
+      <li><code>user@Machine dir %</code> — the <b>normal terminal</b>. <code>brew</code>, <code>npm</code>, <code>psql</code>, <code>git</code> go here.</li>
+      <li><code>bookmarks_dev=#</code> — <b>inside psql</b>. SQL goes here, plus psql's own commands like <code>\\dt</code>.</li>
+      <li>No prompt at all — a <b>file</b> in your editor.</li>
+    </ul>
+    <p>The trap: <code>psql bookmarks_dev -f schema.sql</code> is a <i>normal terminal</i> command even though it runs SQL. It launches psql, feeds it the file, and exits — you never see the <code>=#</code> prompt. Rule of thumb: anything starting with the word <code>psql</code> is typed in the normal terminal.</p>
+    <p><b>Backslash commands are psql's, not SQL's</b>, and take no semicolon. Actual SQL statements do need one — if your prompt changes from <code>bookmarks_dev=#</code> to <code>bookmarks_dev-#</code> and nothing happened, psql is still waiting for it. Type <code>;</code> and hit enter.</p>
+    <p>TablePlus and pgAdmin do the same job visually — point either at <code>localhost:5432</code>. Worth switching once typing SQL by hand feels comfortable.</p>
+  `,
+  highlight: `Homebrew's versioned formulae are "keg-only", meaning psql is not put on your PATH automatically. If psql --version says command not found after a successful install, it installed fine — your shell just can't see it.`,
+  examples: [
+    { label: "Getting psql on your PATH", code:
+`# Apple Silicon
+echo 'export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# Intel Macs: /usr/local instead of /opt/homebrew
+
+psql --version      # verify`},
+    { label: "Ways to invoke it", code:
+`psql bookmarks_dev                  # interactive session, \\q to leave
+psql bookmarks_dev -f schema.sql    # run a file, then exit
+psql bookmarks_dev -c "SELECT 1"    # run one command, then exit
+psql -l                             # list databases, then exit`},
+    { label: "Backslash commands (no semicolon)", code:
+`\\l              list databases
+\\c dbname       switch database
+\\dt             list tables in the current database
+\\d bookmarks    describe one table: columns, types, indexes
+\\q              quit
+
+SELECT * FROM bookmarks;      <- real SQL, semicolon required`}
+  ]
+},
+
+{
+  id: "creating-tables",
+  title: "CREATE TABLE — what SERIAL, NOT NULL and TIMESTAMPTZ are each buying you",
+  category: "Databases",
+  tags: ["postgres", "sql", "schema"],
+  body: `
+    <p>Unlike a Mongo collection, which springs into existence the first time you insert, a table <b>must exist before you can write a single row</b>. You declare its columns and their types up front, and the database holds you to it from then on.</p>
+    <p>Reading the bookmarks table one line at a time:</p>
+    <ul>
+      <li><b><code>SERIAL PRIMARY KEY</code></b> — <code>SERIAL</code> is an auto-incrementing integer: Postgres keeps a hidden counter (a <i>sequence</i>) and pulls the next value on each insert, so your <code>INSERT</code> never mentions <code>id</code>. <code>PRIMARY KEY</code> means unique and not null, and creates an index for free.</li>
+      <li><b><code>TEXT NOT NULL</code></b> — in Postgres <code>TEXT</code> has no length limit and no performance cost versus <code>VARCHAR(n)</code>; reach for <code>VARCHAR</code> only when you actually want a maximum enforced. <code>NOT NULL</code> is the database refusing the row, not your code checking it.</li>
+      <li><b><code>TIMESTAMPTZ NOT NULL DEFAULT NOW()</code></b> — timestamp <i>with time zone</i>: stores an absolute moment in UTC and converts on the way out. <code>DEFAULT NOW()</code> means the database fills it in for you.</li>
+      <li><b><code>IF NOT EXISTS</code></b> — makes the file safe to run twice.</li>
+    </ul>
+    <p><b>Versus Mongo's <code>_id</code>:</b> ObjectIds are generated client-side and are random-ish; Postgres ids are generated server-side and sequential. Sequential ids look nicer in URLs but leak information — id 47 tells a stranger you have roughly 47 rows — and can't be known before the insert happens. Apps that care use <code>UUID</code> instead.</p>
+  `,
+  highlight: `Always prefer TIMESTAMPTZ over plain TIMESTAMP. TIMESTAMP stores a wall-clock reading with no zone attached, so the same value means different moments depending on where it's read — which turns into real, unfixable data corruption when a server moves region or DST arrives.`,
+  examples: [
+    { label: "schema.sql", code:
+`CREATE TABLE IF NOT EXISTS bookmarks (
+  id          SERIAL PRIMARY KEY,
+  title       TEXT NOT NULL,
+  url         TEXT NOT NULL,
+  notes       TEXT,                                     -- optional: no NOT NULL
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);`},
+    { label: "Apply it and check it", code:
+`createdb bookmarks_dev
+psql bookmarks_dev -f schema.sql
+psql bookmarks_dev -c "\\d bookmarks"`},
+    { label: "Feeling NOT NULL for real", code:
+`-- in psql, with no application code involved at all
+INSERT INTO bookmarks (url) VALUES ('https://example.com');
+
+ERROR:  null value in column "title" violates not-null constraint
+
+A Mongoose required: true would not have stopped this, because psql
+never loads your Node code. The rule lives in the database.`}
+  ]
+},
+
+{
+  id: "migrations-vs-schema-file",
+  title: "Migrations vs one schema.sql — the file says what a fresh database looks like, not how to get there",
+  category: "Databases",
+  tags: ["postgres", "sql", "schema", "migrations"],
+  body: `
+    <p>Three different concerns get confused with each other:</p>
+    <ul>
+      <li><b>Creating the database</b> — infrastructure. Happens once, outside the app. In production your host (RDS, Neon) does it.</li>
+      <li><b>Creating and altering tables</b> — an application concern, versioned in the repo, applied deliberately.</li>
+      <li><b>Rows</b> — insert, select, update, delete. The app's routine job on every request.</li>
+    </ul>
+    <p><b>Your Express app should never run <code>CREATE TABLE</code>.</b> Run two instances and they race each other on startup, and schema changes become something you can only trigger by restarting a server. Structure is a deliberate act; moving data is routine.</p>
+    <p><b>Why a single <code>schema.sql</code> stops working.</b> Once the table exists, re-running the file does nothing — <code>IF NOT EXISTS</code> makes it a no-op. So when you want to add a column, editing the file and re-running skips the whole statement and the column never appears. Dropping and recreating is fine with three test rows and unacceptable with real ones.</p>
+    <p><b>Migrations</b> are an ordered sequence of files, each describing a <i>delta</i> rather than the finished state. A tool keeps a <code>schema_migrations</code> table recording which files have already run, compares it against the files on disk, and applies only the new ones, in order, inside a transaction. What that gets you: a brand-new database and a two-year-old production one end up identical; schema changes get reviewed alongside the code that needs them; deploys apply them automatically; and existing data survives, because <code>ALTER TABLE</code> modifies rather than recreates.</p>
+    <p><code>node-pg-migrate</code> does this for raw <code>pg</code>; Prisma, Drizzle and TypeORM ship their own. The pattern is universal — Rails, Django and Laravel all work this way.</p>
+  `,
+  highlight: `If you'd rather design in a modelling tool and apply changes by hand, don't hand-maintain schema.sql — generate it with pg_dump so it's derived from the live database and can't drift. A diagram or schema file that is manually kept in sync eventually becomes confidently wrong, which is worse than not having one.`,
+  examples: [
+    { label: "A migrations folder", code:
+`migrations/
+  001_create_bookmarks.sql
+  002_add_is_archived.sql
+  003_create_tags.sql
+
+002 is not a rewrite of 001. It is only the change:
+
+  ALTER TABLE bookmarks
+    ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE;`},
+    { label: "Generating schema.sql instead of writing it", code:
+`pg_dump --schema-only --no-owner bookmarks_dev > schema.sql`}
+  ]
+},
+
+{
+  id: "parameterized-queries",
+  title: "$1 placeholders — why you never build a SQL string out of user input",
+  category: "Databases",
+  tags: ["postgres", "sql", "security"],
+  body: `
+    <p>Write the query with numbered placeholders and pass the values as a separate array. Never paste user input into the string.</p>
+    <p><b>Why it's safe.</b> Postgres receives the query structure and the data on <b>two different channels</b>. It parses and plans the statement first, while the values are still just values — so there is no moment at which user input could be read as SQL. It isn't escaping or sanitising; the data never enters the parser at all.</p>
+    <p>Glue the value into the string instead and someone passes <code>1 OR 1=1</code> and reads your entire table, or passes something worse and drops it. The parameterized version is also less code to write, so there is genuinely no reason to do it the other way.</p>
+    <p>Placeholders are positional: <code>$1</code> is the first item in the array, <code>$2</code> the second.</p>
+  `,
+  highlight: `This is the single most important habit in the repository file. Every query, every time — including the ones where "the value is just an id and comes from our own frontend". It costs nothing and the failure mode is losing the table.`,
+  examples: [
+    { label: "The two forms", code:
+`SAFE
+  pool.query("SELECT * FROM bookmarks WHERE id = $1", [id]);
+
+UNSAFE — never do this
+  pool.query("SELECT * FROM bookmarks WHERE id = " + id);
+
+  id = "1 OR 1=1"  ->  returns every row
+  id = "1; DROP TABLE bookmarks; --"  ->  exactly what it looks like`},
+    { label: "Try it on purpose", code:
+`POST /bookmarks with a title of:
+
+  '); DROP TABLE bookmarks; --
+
+Then, in psql:
+  SELECT * FROM bookmarks;
+  \\dt
+
+The table is still there, and one row contains that text as an
+ordinary string. Because of $1, Postgres was handed the structure and
+the value separately and never parsed the value as SQL.
+
+Had the repository built the string by hand, the table would be gone.`}
+  ]
+},
+
+{
+  id: "connection-pooling",
+  title: "The connection pool — why db.js exports one pool and every file imports it",
+  category: "Databases",
+  tags: ["postgres", "nodejs", "pg"],
+  body: `
+    <p>A Postgres connection is not cheap. On the server side <b>each one is a separate operating-system process</b> — tens of milliseconds to open and a few megabytes of memory to keep. That rules out both of the obvious approaches:</p>
+    <ul>
+      <li><b>One connection for the whole app.</b> A connection handles one query at a time, so every request queues behind every other one.</li>
+      <li><b>A new connection per request.</b> You pay the setup cost on every single request, and 200 concurrent users means 200 processes on the database server.</li>
+    </ul>
+    <p>A <b>pool</b> is the middle path: keep a small set of connections open (<code>pg</code> defaults to 10) and lend them out. A query borrows one, runs, and hands it straight back. The setup cost is paid once at startup, and the database is protected from being swamped no matter how much traffic you get.</p>
+    <p>This is the entire reason <code>db.js</code> exists as its own file and exports the pool <i>object</i> rather than a function that builds one. <b>One pool per application</b>, created once, imported everywhere. If each repository called <code>new Pool()</code>, ten repositories would mean ten pools and ten times the connections.</p>
+  `,
+  examples: [
+    { label: "src/db.js — the whole file", code:
+`const { Pool } = require("pg");
+require("dotenv").config();
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+module.exports = pool;      // the object, not a factory`},
+    { label: "The connection string", code:
+`DATABASE_URL=postgresql://user:password@host:port/database
+
+Locally, Homebrew creates a superuser named after your macOS user
+with no password, so there is no password segment at all:
+
+DATABASE_URL=postgresql://amanrathi@localhost:5432/bookmarks_dev
+
+Check the username with:  whoami`},
+    { label: "A health check that needs no tables", code:
+`app.get("/health", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json({ status: "ok", time: result.rows[0].now });
+  } catch (err) {
+    console.error("DB error:", err);
+    res.status(500).json({ status: "error", message: "database unreachable" });
+  }
+});
+
+SELECT NOW() just asks the server for the time, so it proves the
+connection works without depending on any schema.`}
+  ]
+},
+
+{
+  id: "pg-result-object",
+  title: "What pool.query() gives back — rows, rowCount, and getting the row you just wrote",
+  category: "Databases",
+  tags: ["postgres", "nodejs", "pg"],
+  body: `
+    <p><code>pool.query()</code> resolves to a result <i>object</i> with metadata, not to your data directly. Destructure the part you want:</p>
+    <ul>
+      <li><b><code>rows</code></b> — always an array, even when you queried by id and expect one thing. <code>const { rows } = await pool.query(...)</code>.</li>
+      <li><b><code>rowCount</code></b> — how many rows were affected. The useful one for <code>DELETE</code> and <code>UPDATE</code>, where there's nothing to return but you still need to know whether anything matched.</li>
+    </ul>
+    <p><b><code>rows[0] ?? null</code></b> is the standard way to return a single record. <code>rows[0]</code> takes the first object; if nothing matched, the array is empty and that's <code>undefined</code>; <code>?? null</code> normalises it to a plain <code>null</code>. The repository returns <code>null</code> rather than throwing, because "not found" isn't an error at this layer — it's a fact, and it's the controller's job to decide that fact means 404.</p>
+    <p><b><code>RETURNING *</code></b> is a Postgres feature worth knowing: after an <code>INSERT</code> or <code>UPDATE</code> it hands you back the resulting row, including the columns the database generated — <code>id</code> and <code>created_at</code>. Without it you'd need a second <code>SELECT</code> to find out what you just made.</p>
+  `,
+  highlight: `Without ORDER BY, SQL makes no promise whatsoever about the order rows come back in. It looks stable on a small table, then quietly stops being stable once the table grows or rows get updated. If order matters, say so in the query.`,
+  examples: [
+    { label: "The result object", code:
+`{
+  rows:     [ { id: 1, title: "...", created_at: 2026-09-05T... } ],
+  rowCount: 1,
+  fields:   [...],        // column names and type info
+  command:  "SELECT"
+}`},
+    { label: "repositories/bookmarks.repository.js", code:
+`const pool = require("../db");
+
+async function findAll() {
+  const { rows } = await pool.query(
+    "SELECT * FROM bookmarks ORDER BY created_at DESC"
+  );
+  return rows;
+}
+
+async function findById(id) {
+  const { rows } = await pool.query(
+    "SELECT * FROM bookmarks WHERE id = $1",
+    [id]
+  );
+  return rows[0] ?? null;              // undefined -> null
+}
+
+async function create({ title, url, notes }) {
+  const { rows } = await pool.query(
+    \`INSERT INTO bookmarks (title, url, notes)
+     VALUES ($1, $2, $3)
+     RETURNING *\`,                     // hands back id and created_at
+    [title, url, notes ?? null]
+  );
+  return rows[0];
+}
+
+async function remove(id) {
+  const { rowCount } = await pool.query(
+    "DELETE FROM bookmarks WHERE id = $1",
+    [id]
+  );
+  return rowCount > 0;                 // did anything actually match?
+}`},
+    { label: "COALESCE for partial updates", code:
+`UPDATE bookmarks
+   SET title = COALESCE($2, title),
+       url   = COALESCE($3, url),
+       notes = COALESCE($4, notes)
+ WHERE id = $1
+ RETURNING *
+
+Pass only title and the other columns keep what they had, which is
+what makes PATCH work.
+
+The limitation: you can never deliberately set a column back to NULL,
+because null already means "don't change this". Real apps build the
+SET clause dynamically to get around it.`}
+  ]
 }
 
 ];
