@@ -1030,6 +1030,107 @@ The limitation: you can never deliberately set a column back to NULL,
 because null already means "don't change this". Real apps build the
 SET clause dynamically to get around it.`}
   ]
+},
+
+{
+  id: "repository-layer",
+  title: "The repository layer — the one rule is that each layer knows only about the layer below it",
+  category: "Project Structure",
+  tags: ["nodejs", "express", "structure", "postgres"],
+  body: `
+    <p>With a SQL database the layering gets one folder that the Mongoose version didn't have. Three layers, each answering a different question:</p>
+    <ul>
+      <li><b><code>routes/</code> — the "where".</b> URL and method to controller function. Pure wiring, no logic.</li>
+      <li><b><code>controllers/</code> — the "what".</b> Web logic: read <code>req</code>, validate input, pick a status code, send <code>res</code>.</li>
+      <li><b><code>repositories/</code> — the "how".</b> Every SQL query in the project, and nothing else.</li>
+    </ul>
+    <p><b>The rule that makes it work: each layer knows about the layer below it and nothing about the layer above.</b> The repository has no idea an HTTP request exists. The controller has no idea whether the data came from Postgres, Mongo, or a text file.</p>
+    <p><b><code>repositories/</code> — the only files containing SQL.</b> No <code>req</code>, no <code>res</code>, no status codes. Functions take plain arguments (<code>findById(7)</code>) and return plain data (an object, or <code>null</code>), which means you could call them from a CLI script or a cron job just as easily. The payoff is that database concerns are quarantined: switching to Prisma later means rewriting this one file, and chasing a query bug means opening one file rather than grepping.</p>
+    <p><b><code>controllers/</code> — the only files touching <code>req</code> and <code>res</code>.</b> "No title, so 400" and "repository returned null, so 404" are HTTP decisions and they belong here.</p>
+    <p><b><code>routes/</code></b> — an Express <code>Router</code> is a mountable mini-app. Paths inside it are relative to wherever it gets mounted, so the file doesn't know it lives under <code>/bookmarks</code>. Move the mount to <code>/api/v2/bookmarks</code> and the routes file is untouched. It also puts your whole API surface on one screen.</p>
+    <p><b>Is this overkill for five routes?</b> Honestly, yes — it would all fit in one 60-line file and behave identically. It's the shape most production Express codebases use, and the value only shows up at ten resources rather than one, when "where's the SQL for X?" has an obvious answer. Learning it on something small means the pattern is familiar before you actually need it. Some teams add a <code>services/</code> layer between controller and repository for logic spanning several tables; for pure CRUD it's an empty passthrough, so skip it until it isn't.</p>
+  `,
+  highlight: `Keeping every SQL string inside repositories/ is what makes the database swappable and the bugs findable. The moment a controller runs its own query, both of those stop being true — and it always starts with one "quick" query that didn't seem worth a repository function.`,
+  examples: [
+    { label: "The project", code:
+`bookmarks-be/
+├── .env                  # never committed
+├── .gitignore
+├── package.json
+├── schema.sql
+├── requests.http
+└── src/
+    ├── index.js          # app setup, runs once at startup
+    ├── db.js             # the pool, created once
+    ├── routes/bookmarks.routes.js
+    ├── controllers/bookmarks.controller.js
+    ├── repositories/bookmarks.repository.js
+    └── middleware/errorHandler.js`},
+    { label: "One request, top to bottom", code:
+`POST /bookmarks   { "title": "x", "url": "y" }
+
+index.js      express.json() parses the body into req.body
+index.js      path starts with /bookmarks -> hand to the router
+routes        POST + "/" -> controller.create
+controller    title and url present, so call repo.create(req.body)
+repository    INSERT ... RETURNING *  via the pool
+db.js         lends a connection, sends it, takes it back
+repository    returns rows[0], including the generated id + created_at
+controller    res.status(201).json(...)
+
+If the repository throws, the controller's catch calls next(err) and
+it jumps straight to errorHandler -> logged, 500 returned.`},
+    { label: "routes/bookmarks.routes.js — wiring only", code:
+`const express = require("express");
+const controller = require("../controllers/bookmarks.controller");
+
+const router = express.Router();
+
+router.get("/", controller.list);
+router.post("/", controller.create);
+router.get("/:id", controller.getOne);
+router.patch("/:id", controller.update);
+router.delete("/:id", controller.remove);
+
+module.exports = router;
+
+// mounted in index.js, which is where the prefix lives:
+//   app.use("/bookmarks", bookmarksRoutes);
+// ":id" is captured by Express into req.params.id`}
+  ]
+},
+
+{
+  id: "npm-scripts-bin",
+  title: "npm scripts and node_modules/.bin — why nodemon works in a script but not in your shell",
+  category: "Project Structure",
+  tags: ["nodejs", "npm", "tooling"],
+  body: `
+    <p>A locally installed CLI tool drops an executable into <code>node_modules/.bin</code>. When npm runs a script it <b>temporarily prepends that folder to your PATH</b>, which is the whole reason <code>"dev": "nodemon src/index.js"</code> resolves without ever installing nodemon globally.</p>
+    <p>Two consequences that look like bugs but aren't:</p>
+    <ul>
+      <li><code>sh: nodemon: command not found</code> from an npm script means it simply isn't in <code>node_modules</code> — <code>npm install --save-dev nodemon</code> fixes it.</li>
+      <li>Typing <code>nodemon</code> straight at your shell prompt still fails even after the script works, because your normal shell never gets that PATH addition. That's expected, not broken.</li>
+    </ul>
+    <p>npm scripts also always run from the directory containing <code>package.json</code>, no matter where you were when you typed the command. That matters more than it sounds — it's why <code>npm run dev</code> finds your <code>.env</code> when running the file directly might not.</p>
+    <p>Worth knowing: Node 22+ has a built-in file watcher, so <code>node --watch src/index.js</code> can replace nodemon entirely with no dependency at all.</p>
+  `,
+  examples: [
+    { label: "Checking what's actually there", code:
+`ls node_modules/.bin | grep nodemon
+
+npm run dev        # works: .bin is on PATH for the script
+nodemon src/index.js   # command not found: your shell has no .bin`},
+    { label: "package.json", code:
+`"scripts": {
+  "dev": "nodemon src/index.js"
+}
+
+// or, with no dependency at all on Node 22+:
+"scripts": {
+  "dev": "node --watch src/index.js"
+}`}
+  ]
 }
 
 ];
