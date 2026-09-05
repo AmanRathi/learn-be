@@ -414,6 +414,7 @@ export default router;` }
       <li><b><code>.env</code> goes in <code>.gitignore</code>.</b> Commit a <code>.env.example</code> with the same keys but fake values, so whoever clones the repo knows what to fill in.</li>
       <li><b>It's a development convenience, not a production mechanism.</b> On a real server the variables come from the platform — Docker, systemd, Railway, ECS — and dotenv often isn't installed at all.</li>
     </ul>
+    <p><b>It looks in the current working directory</b> — whatever <code>pwd</code> prints — for a file named <code>.env</code>. Not next to the file that called <code>config()</code>, and it doesn't search upward. So running from the project root finds it and running from inside <code>src/</code> doesn't. npm scripts always run from the directory holding <code>package.json</code>, which is why <code>npm run dev</code> works no matter where you are, and running the file by hand sometimes doesn't.</p>
     <p>Node 20.6 and later can do this without the package, via <code>node --env-file=.env src/index.js</code>. dotenv is still the common convention, so most courses and codebases use it.</p>
   `,
   highlight: `Every value out of process.env is a string. process.env.PORT + 1 gives you "40001", and a flag set to false is the truthy string "false".`,
@@ -439,7 +440,26 @@ connectDB().then(() => {
         mongoose.connect("mongodb+srv://<user>:<password>@<cluster>.mongodb.net")
 
 GOOD  — the value lives in .env, the code only names it
-        mongoose.connect(process.env.MONGODB_URI)`}
+        mongoose.connect(process.env.MONGODB_URI)`},
+    { label: "Where it looks, and the silent failure", code:
+`bookmarks-be/          <- .env lives here
+  package.json
+  src/index.js         <- the require lives here
+
+cd bookmarks-be && npm run dev        cwd = bookmarks-be  -> finds .env
+cd bookmarks-be/src && node index.js  cwd = src           -> looks for src/.env
+
+Nothing throws when there is no .env. dotenv loads nothing, the
+variable is undefined, and you get a confusing connection error
+instead of "your config is missing".
+
+To be explicit and not care about the cwd at all:
+
+  require("dotenv").config({
+    path: require("path").resolve(__dirname, "../.env")
+  });
+
+  __dirname is the folder of the current file.`}
   ]
 },
 
