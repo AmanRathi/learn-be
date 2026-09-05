@@ -1131,6 +1131,204 @@ nodemon src/index.js   # command not found: your shell has no .bin`},
   "dev": "node --watch src/index.js"
 }`}
   ]
+},
+
+{
+  id: "express-middleware-order",
+  title: "Middleware order — express.json() before the routes, the error handler after them",
+  category: "HTTP & APIs",
+  tags: ["express", "nodejs", "middleware"],
+  body: `
+    <p>Think of Express as a conveyor belt. <code>app.use()</code> puts workers along it that inspect, modify, or reject the request on its way past. <b>They run top to bottom, in the order you registered them</b>, which makes the order in <code>index.js</code> load-bearing rather than cosmetic.</p>
+    <p>Three kinds of worker sit on that belt:</p>
+    <ul>
+      <li><b>Global modifiers</b> — <code>express.json()</code> intercepts <code>POST</code> and <code>PATCH</code> requests, parses the raw body text into an object and attaches it to <code>req.body</code>. Without it you'd be listening to a data stream and reassembling chunks by hand.</li>
+      <li><b>Ordinary middleware</b> — checks something (is this user logged in?) and calls <code>next()</code> to pass the request along.</li>
+      <li><b>Controllers</b> — also middleware, with the same <code>(req, res, next)</code> signature, but they're the end of the line. Instead of calling <code>next()</code> they call <code>res.json()</code> and the request is finished.</li>
+    </ul>
+    <p>So the two rules that follow from "top to bottom": <code>express.json()</code> goes <b>before</b> your routes, or <code>req.body</code> is <code>undefined</code> by the time a controller reads it. And the error handler goes <b>after</b> them, because it can only catch things registered above it.</p>
+  `,
+  highlight: `req.body coming back undefined in a POST controller is almost always express.json() registered after the routes, or missing entirely. It's a rite of passage worth twenty minutes of confusion exactly once.`,
+  examples: [
+    { label: "src/index.js — the order is the point", code:
+`require("dotenv").config();
+const express = require("express");
+const pool = require("./db");
+const bookmarksRoutes = require("./routes/bookmarks.routes");
+const errorHandler = require("./middleware/errorHandler");
+
+const app = express();
+
+app.use(express.json());          // 1. BEFORE routes, or req.body is undefined
+
+app.use("/bookmarks", bookmarksRoutes);   // 2. the routes
+
+app.use(errorHandler);            // 3. AFTER routes, or it catches nothing
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("listening on http://localhost:" + PORT));`}
+  ]
+},
+
+{
+  id: "express-error-handling",
+  title: "next(err) and the four-argument error handler — the arity is what makes it work",
+  category: "HTTP & APIs",
+  tags: ["express", "nodejs", "middleware", "errors"],
+  body: `
+    <p>Database calls fail, so controller bodies get wrapped in <code>try...catch</code>, and the catch does exactly one thing: <code>next(err)</code>.</p>
+    <p><b><code>next(err)</code> is an emergency stop.</b> Passing an argument to <code>next</code> tells Express to skip every remaining route and middleware and jump straight to the error handler. That's what gives you one place where unhandled errors land — one place to log them, and one place guaranteeing the client gets a generic message instead of a Postgres error string naming your tables.</p>
+    <p><b>Four arguments is what marks a function as error middleware.</b> Express counts the parameters to decide what kind of middleware it's looking at, so <code>(err, req, res, next)</code> registers as an error handler and <code>(err, req, res)</code> silently does not. The unused <code>next</code> is load-bearing — don't tidy it away.</p>
+    <p><b>On the try/catch itself:</b> Express 4 does not catch rejected promises from async handlers, so without it a database error would hang the request until timeout with no response and nothing logged. Express 5 forwards them automatically. Writing the explicit try/catch works on both, and is what most codebases you'll read look like.</p>
+  `,
+  highlight: `Drop the unused next from (err, req, res, next) and Express stops treating the function as an error handler — it becomes an ordinary middleware that never runs. No warning, no crash: errors just quietly stop being handled.`,
+  examples: [
+    { label: "controllers/bookmarks.controller.js", code:
+`const repo = require("../repositories/bookmarks.repository");
+
+async function getOne(req, res, next) {
+  try {
+    const bookmark = await repo.findById(req.params.id);
+    if (!bookmark) return res.status(404).json({ error: "Bookmark not found" });
+    res.json(bookmark);
+  } catch (err) {
+    next(err);                 // stop everything, go to errorHandler
+  }
+}
+
+async function create(req, res, next) {
+  try {
+    const { title, url } = req.body;
+    if (!title || !url) {
+      return res.status(400).json({ error: "title and url are required" });
+    }
+    res.status(201).json(await repo.create(req.body));
+  } catch (err) {
+    next(err);
+  }
+}`},
+    { label: "middleware/errorHandler.js", code:
+`function errorHandler(err, req, res, next) {
+  console.error(err);                                   // the log
+  res.status(500).json({ error: "Internal server error" });  // the client
+}
+
+module.exports = errorHandler;
+
+// four parameters. "next" is never called here, and still must be there.`}
+  ]
+},
+
+{
+  id: "http-status-codes",
+  title: "Status codes in a CRUD API — 201 for created, 204 for deleted, and 400 vs 404",
+  category: "HTTP & APIs",
+  tags: ["express", "http", "api"],
+  body: `
+    <p>The controller's real job is translating what the repository returned into the right code. The full set a small CRUD API needs:</p>
+    <ul>
+      <li><b>200 OK</b> — a successful <code>GET</code> or <code>PATCH</code>.</li>
+      <li><b>201 Created</b> — a successful <code>POST</code>. Return the created object, so the client gets the generated <code>id</code> and <code>created_at</code>.</li>
+      <li><b>204 No Content</b> — a successful <code>DELETE</code>. The body must be <i>empty</i>; that's what the code means. <code>res.status(204).send()</code>, not <code>.json()</code>.</li>
+      <li><b>400 Bad Request</b> — the client sent something invalid or incomplete. Decided before any query runs.</li>
+      <li><b>404 Not Found</b> — a perfectly valid request naming something that doesn't exist. This is the repository's <code>null</code>, translated.</li>
+      <li><b>500 Internal Server Error</b> — something broke on our side. Should mean a bug, never a predictable outcome.</li>
+    </ul>
+    <p>Because <code>res.status()</code> returns <code>res</code> itself, these chain: <code>res.status(201).json(...)</code>.</p>
+    <p><b>PATCH vs PUT</b> — <code>PATCH</code> is a partial update, where you send only the fields you're changing (what <code>COALESCE</code> in the repository makes possible). <code>PUT</code> replaces the whole resource, and omitted fields get cleared.</p>
+  `,
+  highlight: `GET /bookmarks/abc returns 500, and that's a bug worth understanding rather than a quirk. Postgres can't compare an integer column to 'abc' so it throws, the catch fires, and the generic handler calls it a server error — but the server is fine, the client sent nonsense. That should be a 400, which is exactly why real APIs validate that :id is numeric before ever touching the database.`,
+  examples: [
+    { label: "What each request proves", code:
+`POST                 201, body has id + created_at you never sent
+                     -> SERIAL, DEFAULT NOW() and RETURNING * all work
+
+GET list             200, array, newest first
+                     -> ORDER BY created_at DESC
+
+GET one              200, a single object rather than an array
+                     -> rows[0] in the repository
+
+PATCH with only
+  { "notes": "x" }   200, title and url unchanged
+                     -> COALESCE partial update
+
+DELETE               204, empty body
+                     -> 204 means "done, nothing to say"`},
+    { label: "Failures worth causing on purpose", code:
+`POST { "title": "x" }        -> 400
+  the controller rejected it before any query ran
+
+GET /bookmarks/99999         -> 404
+  the query ran fine and matched zero rows, the repository returned
+  null, the controller turned that into 404 — three layers each doing
+  their own separate job
+
+GET /bookmarks/abc           -> 500  (should be 400)
+  Postgres cannot compare an integer column to 'abc'
+
+GET /bookmarks  returning [] -> not a failure at all
+  it means Express, db.js, the repository and Postgres all worked and
+  the table is simply empty. POST something first.`}
+  ]
+},
+
+{
+  id: "rest-client-http-files",
+  title: "requests.http — testing an API from the editor, and the blank line HTTP insists on",
+  category: "HTTP & APIs",
+  tags: ["http", "api", "tooling"],
+  body: `
+    <p>The VS Code <b>REST Client</b> extension runs HTTP requests straight from a plain <code>.http</code> file kept in the repo — a lightweight Postman that lives alongside the code and gets committed with it.</p>
+    <ul>
+      <li><b><code>###</code></b> separates one request from the next, and is what the extension uses to decide where to put its buttons.</li>
+      <li>Each request needs a <b>method and a URL</b>, then any headers. <code>Content-Type: application/json</code> is what tells your <code>express.json()</code> middleware to parse the body.</li>
+      <li>A browser handles <code>GET</code> and nothing else, which is the whole reason a tool is needed for <code>POST</code>, <code>PATCH</code> and <code>DELETE</code>.</li>
+    </ul>
+    <p><b>The blank line is a real rule of HTTP</b>, not an editor quirk: exactly one empty line separates headers from the body. Miss it and the request fails.</p>
+    <p>Worth running the API in one terminal tab and keeping <code>psql bookmarks_dev</code> open in another, running <code>SELECT * FROM bookmarks;</code> after each call. Otherwise you only ever see your API's own claim about what happened — watching the rows appear in a separate program, connected independently, is what makes the database feel real.</p>
+  `,
+  highlight: `The clickable "Send Request" link sits on its own line above each ###. Clicking the URL instead opens it in a browser, which can only issue GET — so the POST never runs, and GET /bookmarks then returns an empty array that looks like a broken API. If no link appears at all, the extension isn't installed or the window needs reloading.`,
+  examples: [
+    { label: "requests.http", code:
+`### create
+POST http://localhost:3000/bookmarks
+Content-Type: application/json
+
+{
+  "title": "Postgres docs",
+  "url": "https://www.postgresql.org/docs/",
+  "notes": "official reference"
+}
+
+### list all
+GET http://localhost:3000/bookmarks
+
+### get one
+GET http://localhost:3000/bookmarks/1
+
+### update
+PATCH http://localhost:3000/bookmarks/1
+Content-Type: application/json
+
+{ "notes": "updated note" }
+
+### delete
+DELETE http://localhost:3000/bookmarks/1`},
+    { label: "The same thing in curl", code:
+`curl -X POST http://localhost:3000/bookmarks \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Postgres docs","url":"https://www.postgresql.org/docs/"}'
+
+curl http://localhost:3000/bookmarks
+curl http://localhost:3000/bookmarks/1
+
+curl -X PATCH http://localhost:3000/bookmarks/1 \\
+  -H "Content-Type: application/json" \\
+  -d '{"notes":"updated note"}'
+
+curl -X DELETE http://localhost:3000/bookmarks/1`}
+  ]
 }
 
 ];
